@@ -7,9 +7,9 @@
     <style>
         body {
             margin: 0;
-            background: #111;
+            background: #0d0f12;
             color: #fff;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -19,42 +19,66 @@
         }
         #menu {
             position: absolute;
-            background: rgba(0, 0, 0, 0.85);
-            padding: 30px;
-            border-radius: 10px;
+            background: rgba(18, 20, 26, 0.95);
+            padding: 40px;
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 0 20px rgba(0,255,0,0.3);
+            box-shadow: 0 0 30px rgba(0, 255, 128, 0.15);
+            border: 1px solid #2a2e3d;
             z-index: 10;
+            width: 320px;
         }
+        h2 { margin-top: 0; color: #00ff80; letter-spacing: 1px; }
+        p { color: #8b9bb4; font-size: 14px; line-height: 1.5; }
         button, input {
-            padding: 10px 15px;
-            margin: 10px;
-            font-size: 16px;
-            border-radius: 5px;
+            padding: 12px 15px;
+            margin: 8px 0;
+            font-size: 15px;
+            border-radius: 6px;
             border: none;
             outline: none;
+            width: 100%;
+            box-sizing: border-box;
         }
         button {
-            background: #28a745;
-            color: white;
+            background: #00ff80;
+            color: #0d0f12;
             cursor: pointer;
             font-weight: bold;
+            transition: 0.2s;
         }
-        button:hover { background: #218838; }
-        input { background: #222; color: #fff; border: 1px solid #444; }
+        button:hover { background: #00cc66; }
+        button:disabled { background: #2a2e3d; color: #555; cursor: not-allowed; }
+        input { 
+            background: #161922; 
+            color: #fff; 
+            border: 1px solid #2a2e3d; 
+            text-align: center;
+            letter-spacing: 3px;
+            font-weight: bold;
+        }
+        input:focus { border-color: #00ff80; }
         canvas {
-            background: #1e1e1e;
-            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            background: #13161f;
+            border: 2px solid #2a2e3d;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             display: none;
         }
         #ui {
             display: none;
             position: absolute;
-            top: 10px;
-            font-size: 18px;
+            top: 20px;
+            font-size: 16px;
             font-weight: bold;
+            letter-spacing: 1px;
             z-index: 5;
+            background: rgba(18, 20, 26, 0.8);
+            padding: 10px 20px;
+            border-radius: 6px;
+            border: 1px solid #2a2e3d;
         }
+        .highlight { color: #00ff80; }
     </style>
     <!-- PeerJS for P2P Multiplayer -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
@@ -62,16 +86,16 @@
 <body>
 
     <div id="menu">
-        <h2>P2P 2D Shooter</h2>
-        <p>Controls: <b>WASD</b> to Move | <b>Mouse</b> to Aim & Shoot</p>
+        <h2>ARENA.IO</h2>
+        <p><b>WASD</b> to Move<br><b>Mouse</b> to Aim & Shoot</p>
         <button id="hostBtn">Create Game (Host)</button>
-        <br><br>
-        <input type="text" id="peerIdInput" placeholder="Enter Host Code">
+        <div style="margin: 15px 0; border-top: 1px solid #2a2e3d;"></div>
+        <input type="text" id="peerIdInput" placeholder="CODE" maxlength="4">
         <button id="joinBtn">Join Game</button>
-        <p id="status" style="font-size: 14px; color: #aaa;"></p>
+        <p id="status" style="margin-top: 15px;"></p>
     </div>
 
-    <div id="ui">Health: <span id="healthVal">100</span> | Score: <span id="scoreVal">0</span></div>
+    <div id="ui">HEALTH: <span id="healthVal" class="highlight">100</span> &nbsp;|&nbsp; SCORE: <span id="scoreVal" class="highlight">0</span></div>
     <canvas id="gameCanvas" width="800" height="600"></canvas>
 
     <script>
@@ -85,19 +109,17 @@
         let isHost = false;
         let gameStarted = false;
 
-        // Game State
         let players = {};
         let bullets = [];
         let myId = null;
         let score = 0;
         let health = 100;
 
-        const keys = { w: false, a: false, s: false, d: false };
+        const keys = {};
         const mouse = { x: 0, y: 0, down: false };
 
-        // Input Listeners
-        window.addEventListener('keydown', e => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
-        window.addEventListener('keyup', e => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
         canvas.addEventListener('mousemove', e => {
             const rect = canvas.getBoundingClientRect();
             mouse.x = e.clientX - rect.left;
@@ -106,16 +128,29 @@
         canvas.addEventListener('mousedown', () => mouse.down = true);
         canvas.addEventListener('mouseup', () => mouse.down = false);
 
-        // Host Game
+        function generateShortCode() {
+            return Math.floor(1000 + Math.random() * 9000).toString();
+        }
+
         document.getElementById('hostBtn').onclick = () => {
-            peer = new Peer();
+            const shortCode = generateShortCode();
+            const fullPeerId = 'shooter_' + shortCode;
+            
+            peer = new Peer(fullPeerId);
             isHost = true;
 
-            peer.on('open', id => {
-                myId = id;
-                statusText.innerHTML = `Your Host Code:<br><b>${id}</b><br>Share this code with your friend! Waiting for connection...`;
+            peer.on('open', () => {
+                myId = fullPeerId;
+                statusText.innerHTML = `Your 4-Digit Code:<br><span style="font-size: 26px; color: #00ff80; letter-spacing: 4px;"><b>${shortCode}</b></span><br><br>Waiting for opponent...`;
                 document.getElementById('hostBtn').disabled = true;
                 document.getElementById('joinBtn').disabled = true;
+                document.getElementById('peerIdInput').disabled = true;
+            });
+
+            peer.on('error', () => {
+                // Retry with a new code if collision occurs
+                peer.destroy();
+                document.getElementById('hostBtn').click();
             });
 
             peer.on('connection', connection => {
@@ -125,41 +160,37 @@
             });
         };
 
-        // Join Game
         document.getElementById('joinBtn').onclick = () => {
-            const hostId = document.getElementById('peerIdInput').value.trim();
-            if (!hostId) { alert('Please enter a host code!'); return; }
+            const codeInput = document.getElementById('peerIdInput').value.trim();
+            if (codeInput.length !== 4) { alert('Please enter a valid 4-digit code!'); return; }
 
+            const targetId = 'shooter_' + codeInput;
             peer = new Peer();
             isHost = false;
 
             peer.on('open', id => {
                 myId = id;
-                conn = peer.connect(hostId);
+                conn = peer.connect(targetId);
                 setupConnection();
                 startGame();
+            });
+
+            peer.on('error', () => {
+                alert('Could not connect. Check the code and try again.');
             });
         };
 
         function setupConnection() {
-            conn.on('open', () => {
-                console.log('Connected to peer!');
-            });
-
             conn.on('data', data => {
                 if (isHost) {
-                    // Host receives inputs/actions from client
-                    if (data.type === 'input') {
-                        if (players[data.id]) {
-                            players[data.id].x = data.x;
-                            players[data.id].y = data.y;
-                            players[data.id].angle = data.angle;
-                        }
+                    if (data.type === 'input' && players[data.id]) {
+                        players[data.id].x = data.x;
+                        players[data.id].y = data.y;
+                        players[data.id].angle = data.angle;
                     } else if (data.type === 'shoot') {
                         bullets.push(data.bullet);
                     }
                 } else {
-                    // Client receives game state update from host
                     if (data.type === 'state') {
                         players = data.players;
                         bullets = data.bullets;
@@ -172,7 +203,7 @@
             });
 
             conn.on('close', () => {
-                alert('Disconnected from peer.');
+                alert('Connection lost.');
                 location.reload();
             });
         }
@@ -183,14 +214,13 @@
             ui.style.display = 'block';
             gameStarted = true;
 
-            // Initialize local player
             players[myId] = {
                 x: Math.random() * 600 + 100,
                 y: Math.random() * 400 + 100,
                 angle: 0,
                 health: 100,
                 score: 0,
-                color: isHost ? '#ff4757' : '#2ed573'
+                color: isHost ? '#ff4757' : '#00ff80'
             };
 
             requestAnimationFrame(gameLoop);
@@ -200,25 +230,23 @@
         function gameLoop() {
             if (!gameStarted) return;
 
-            // 1. Local Movement Handling
             let p = players[myId];
             if (p && p.health > 0) {
-                let speed = 3;
-                if (keys.w && p.y > 15) p.y -= speed;
-                if (keys.s && p.y < canvas.height - 15) p.y += speed;
-                if (keys.a && p.x > 15) p.x -= speed;
-                if (keys.d && p.x < canvas.width - 15) p.x += speed;
+                let speed = 3.5;
+                if ((keys['w'] || keys['arrowup']) && p.y > 15) p.y -= speed;
+                if ((keys['s'] || keys['arrowdown']) && p.y < canvas.height - 15) p.y += speed;
+                if ((keys['a'] || keys['arrowleft']) && p.x > 15) p.x -= speed;
+                if ((keys['d'] || keys['arrowright']) && p.x < canvas.width - 15) p.x += speed;
 
                 p.angle = Math.atan2(mouse.y - p.y, mouse.x - p.x);
 
-                // Shooting
-                if (mouse.down && Date.now() - lastShootTime > 300) {
+                if (mouse.down && Date.now() - lastShootTime > 250) {
                     lastShootTime = Date.now();
                     let newBullet = {
                         x: p.x,
                         y: p.y,
-                        vx: Math.cos(p.angle) * 7,
-                        vy: Math.sin(p.angle) * 7,
+                        vx: Math.cos(p.angle) * 8,
+                        vy: Math.sin(p.angle) * 8,
                         owner: myId
                     };
                     if (isHost) {
@@ -228,27 +256,22 @@
                     }
                 }
 
-                // Send input if client
                 if (!isHost) {
                     conn.send({ type: 'input', id: myId, x: p.x, y: p.y, angle: p.angle });
                 }
             }
 
-            // 2. Host Simulation Logic
             if (isHost) {
-                // Update bullets
                 for (let i = bullets.length - 1; i >= 0; i--) {
                     let b = bullets[i];
                     b.x += b.vx;
                     b.y += b.vy;
 
-                    // Wall collision
                     if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
                         bullets.splice(i, 1);
                         continue;
                     }
 
-                    // Player collision
                     for (let id in players) {
                         if (id !== b.owner && players[id].health > 0) {
                             let dist = Math.hypot(players[id].x - b.x, players[id].y - b.y);
@@ -257,27 +280,34 @@
                                 bullets.splice(i, 1);
                                 if (players[id].health <= 0) {
                                     players[b.owner].score += 1;
-                                    // Respawn
                                     setTimeout(() => {
                                         if (players[id]) {
                                             players[id].health = 100;
                                             players[id].x = Math.random() * 600 + 100;
                                             players[id].y = Math.random() * 400 + 100;
                                         }
-                                    }, 2000);
+                                    }, 1500);
                                 }
                                 break;
                             }
                         }
                     }
                 }
-
-                // Broadcast state to client
                 conn.send({ type: 'state', players: players, bullets: bullets });
             }
 
-            // 3. Render Graphics
+            // Render Arena
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid pattern in background
+            ctx.strokeStyle = '#181b25';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += 40) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += 40) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+            }
 
             // Draw Bullets
             ctx.fillStyle = '#ffa502';
@@ -296,26 +326,28 @@
                 ctx.translate(pl.x, pl.y);
                 ctx.rotate(pl.angle);
 
+                // Gun Barrel
+                ctx.fillStyle = '#4b5563';
+                ctx.fillRect(0, -4, 22, 8);
+
                 // Body
                 ctx.fillStyle = pl.color;
                 ctx.beginPath();
                 ctx.arc(0, 0, 15, 0, Math.PI * 2);
                 ctx.fill();
-
-                // Gun Barrel
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(0, -4, 20, 8);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#fff';
+                ctx.stroke();
 
                 ctx.restore();
 
-                // Health Bar over player
-                ctx.fillStyle = 'red';
-                ctx.fillRect(pl.x - 20, pl.y - 25, 40, 5);
-                ctx.fillStyle = 'green';
-                ctx.fillRect(pl.x - 20, pl.y - 25, 40 * (pl.health / 100), 5);
+                // Health Bar
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(pl.x - 20, pl.y - 28, 40, 6);
+                ctx.fillStyle = pl.color;
+                ctx.fillRect(pl.x - 20, pl.y - 28, 40 * (pl.health / 100), 6);
             }
 
-            // Update UI elements
             document.getElementById('healthVal').innerText = health;
             document.getElementById('scoreVal').innerText = score;
 
