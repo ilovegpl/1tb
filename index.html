@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P 2D Top-Down Shooter</title>
+    <title>P2P 2D Top-Down Shooter - Shop Edition</title>
     <style>
         body {
             margin: 0;
@@ -16,6 +16,7 @@
             justify-content: center;
             height: 100vh;
             overflow: hidden;
+            user-select: none;
         }
         #menu {
             position: absolute;
@@ -69,7 +70,7 @@
             display: none;
             position: absolute;
             top: 20px;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: bold;
             letter-spacing: 1px;
             z-index: 5;
@@ -78,7 +79,33 @@
             border-radius: 6px;
             border: 1px solid #2a2e3d;
         }
+        #shop {
+            display: none;
+            position: absolute;
+            background: rgba(18, 20, 26, 0.95);
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid #2a2e3d;
+            z-index: 10;
+            width: 360px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+        }
+        #shop h3 { margin-top: 0; color: #00ff80; text-align: center; }
+        .weapon-item {
+            background: #161922;
+            border: 1px solid #2a2e3d;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .weapon-info div { font-size: 13px; color: #8b9bb4; }
+        .weapon-info b { color: #fff; font-size: 15px; }
+        .shop-btn { padding: 6px 12px; font-size: 13px; width: auto; margin: 0; }
         .highlight { color: #00ff80; }
+        .money { color: #ffa502; }
     </style>
     <!-- PeerJS for P2P Multiplayer -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
@@ -87,7 +114,7 @@
 
     <div id="menu">
         <h2>ARENA.IO</h2>
-        <p><b>WASD</b> to Move<br><b>Mouse</b> to Aim & Shoot</p>
+        <p><b>WASD</b> to Move<br><b>Mouse</b> to Aim & Shoot<br><b>B</b> to Open Shop</p>
         <button id="hostBtn">Create Game (Host)</button>
         <div style="margin: 15px 0; border-top: 1px solid #2a2e3d;"></div>
         <input type="text" id="peerIdInput" placeholder="CODE" maxlength="4">
@@ -95,7 +122,19 @@
         <p id="status" style="margin-top: 15px;"></p>
     </div>
 
-    <div id="ui">HEALTH: <span id="healthVal" class="highlight">100</span> &nbsp;|&nbsp; SCORE: <span id="scoreVal" class="highlight">0</span></div>
+    <div id="ui">
+        HP: <span id="healthVal" class="highlight">100</span> &nbsp;|&nbsp; 
+        SCORE: <span id="scoreVal" class="highlight">0</span> &nbsp;|&nbsp; 
+        MONEY: $<span id="moneyVal" class="money">0</span> &nbsp;|&nbsp; 
+        GUN: <span id="gunVal" class="highlight">Pistol</span> [Press B]
+    </div>
+
+    <div id="shop">
+        <h3>GUN SHOP</h3>
+        <div id="shopList"></div>
+        <button onclick="toggleShop()" style="margin-top: 10px;">Close Shop (B)</button>
+    </div>
+
     <canvas id="gameCanvas" width="800" height="600"></canvas>
 
     <script>
@@ -103,30 +142,103 @@
         const ctx = canvas.getContext('2d');
         const menu = document.getElementById('menu');
         const ui = document.getElementById('ui');
+        const shopDiv = document.getElementById('shop');
         const statusText = document.getElementById('status');
 
         let peer, conn;
         let isHost = false;
         let gameStarted = false;
+        let shopOpen = false;
 
         let players = {};
         let bullets = [];
         let myId = null;
         let score = 0;
         let health = 100;
+        let money = 100; // Starting cash
+
+        const weapons = {
+            pistol: { name: 'Pistol', cost: 0, damage: 25, fireRate: 350, speed: 8, spread: 0, count: 1 },
+            smg: { name: 'SMG', cost: 250, damage: 12, fireRate: 100, speed: 9, spread: 0.15, count: 1 },
+            shotgun: { name: 'Shotgun', cost: 400, damage: 18, fireRate: 700, speed: 7, spread: 0.3, count: 4 },
+            sniper: { name: 'Sniper', cost: 600, damage: 75, fireRate: 1200, speed: 15, spread: 0.02, count: 1 }
+        };
+
+        let currentWeapon = 'pistol';
+        let unlockedWeapons = { pistol: true };
 
         const keys = {};
         const mouse = { x: 0, y: 0, down: false };
 
-        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keydown', e => {
+            if (e.key.toLowerCase() === 'b' && gameStarted) {
+                toggleShop();
+            }
+            keys[e.key.toLowerCase()] = true;
+        });
         window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
         canvas.addEventListener('mousemove', e => {
+            if (shopOpen) return;
             const rect = canvas.getBoundingClientRect();
             mouse.x = e.clientX - rect.left;
             mouse.y = e.clientY - rect.top;
         });
-        canvas.addEventListener('mousedown', () => mouse.down = true);
+        canvas.addEventListener('mousedown', () => { if (!shopOpen) mouse.down = true; });
         canvas.addEventListener('mouseup', () => mouse.down = false);
+
+        function toggleShop() {
+            shopOpen = !shopOpen;
+            shopDiv.style.display = shopOpen ? 'block' : 'none';
+            if (shopOpen) {
+                mouse.down = false;
+                updateShopUI();
+            }
+        }
+
+        function updateShopUI() {
+            let html = '';
+            for (let key in weapons) {
+                let w = weapons[key];
+                let isUnlocked = unlockedWeapons[key];
+                let isEquipped = currentWeapon === key;
+
+                html += `
+                    <div class="weapon-item">
+                        <div class="weapon-info">
+                            <b>${w.name}</b>
+                            <div>Dmg: ${w.damage} | Rate: ${w.fireRate}ms</div>
+                        </div>
+                        <div>
+                            ${isEquipped ? '<span class="highlight">Equipped</span>' : 
+                              isUnlocked ? `<button class="shop-btn" onclick="equipWeapon('${key}')">Equip</button>` : 
+                              `<button class="shop-btn" onclick="buyWeapon('${key}')">$${w.cost}</button>`}
+                        </div>
+                    </div>`;
+            }
+            document.getElementById('shopList').innerHTML = html;
+        }
+
+        function buyWeapon(key) {
+            let w = weapons[key];
+            if (money >= w.cost) {
+                money -= w.cost;
+                unlockedWeapons[key] = true;
+                currentWeapon = key;
+                document.getElementById('gunVal').innerText = w.name;
+                updateShopUI();
+            } else {
+                alert('Not enough money!');
+            }
+        }
+
+        function equipWeapon(key) {
+            if (unlockedWeapons[key]) {
+                currentWeapon = key;
+                document.getElementById('gunVal').innerText = weapons[key].name;
+                updateShopUI();
+            }
+        }
 
         function generateShortCode() {
             return Math.floor(1000 + Math.random() * 9000).toString();
@@ -189,6 +301,7 @@
                             angle: 0,
                             health: 100,
                             score: 0,
+                            money: 100,
                             color: '#00ff80'
                         };
                     } else if (data.type === 'input' && players[data.id]) {
@@ -196,7 +309,7 @@
                         players[data.id].y = data.y;
                         players[data.id].angle = data.angle;
                     } else if (data.type === 'shoot') {
-                        bullets.push(data.bullet);
+                        data.bullets.forEach(b => bullets.push(b));
                     }
                 } else {
                     if (data.type === 'state') {
@@ -205,6 +318,7 @@
                         if (players[myId]) {
                             health = players[myId].health;
                             score = players[myId].score;
+                            money = players[myId].money;
                         }
                     }
                 }
@@ -228,6 +342,7 @@
                 angle: 0,
                 health: 100,
                 score: 0,
+                money: 100,
                 color: isHost ? '#ff4757' : '#00ff80'
             };
 
@@ -248,7 +363,7 @@
             if (!gameStarted) return;
 
             let p = players[myId];
-            if (p && p.health > 0) {
+            if (p && p.health > 0 && !shopOpen) {
                 let speed = 3.5;
                 if ((keys['w'] || keys['arrowup']) && p.y > 15) p.y -= speed;
                 if ((keys['s'] || keys['arrowdown']) && p.y < canvas.height - 15) p.y += speed;
@@ -257,19 +372,27 @@
 
                 p.angle = Math.atan2(mouse.y - p.y, mouse.x - p.x);
 
-                if (mouse.down && Date.now() - lastShootTime > 250) {
+                let wData = weapons[currentWeapon];
+                if (mouse.down && Date.now() - lastShootTime > wData.fireRate) {
                     lastShootTime = Date.now();
-                    let newBullet = {
-                        x: p.x,
-                        y: p.y,
-                        vx: Math.cos(p.angle) * 8,
-                        vy: Math.sin(p.angle) * 8,
-                        owner: myId
-                    };
+                    let spawnedBullets = [];
+
+                    for (let i = 0; i < wData.count; i++) {
+                        let spreadAngle = p.angle + (Math.random() - 0.5) * wData.spread;
+                        spawnedBullets.push({
+                            x: p.x,
+                            y: p.y,
+                            vx: Math.cos(spreadAngle) * wData.speed,
+                            vy: Math.sin(spreadAngle) * wData.speed,
+                            damage: wData.damage,
+                            owner: myId
+                        });
+                    }
+
                     if (isHost) {
-                        bullets.push(newBullet);
+                        spawnedBullets.forEach(b => bullets.push(b));
                     } else {
-                        conn.send({ type: 'shoot', bullet: newBullet });
+                        conn.send({ type: 'shoot', bullets: spawnedBullets });
                     }
                 }
 
@@ -289,14 +412,24 @@
                         continue;
                     }
 
+                    let hit = false;
                     for (let id in players) {
                         if (id !== b.owner && players[id].health > 0) {
                             let dist = Math.hypot(players[id].x - b.x, players[id].y - b.y);
                             if (dist < 15) {
-                                players[id].health -= 25;
-                                bullets.splice(i, 1);
+                                players[id].health -= b.damage;
+                                hit = true;
+
+                                // Reward attacker with money for hitting
+                                if (players[b.owner]) {
+                                    players[b.owner].money += 50;
+                                }
+
                                 if (players[id].health <= 0) {
-                                    if (players[b.owner]) players[b.owner].score += 1;
+                                    if (players[b.owner]) {
+                                        players[b.owner].score += 1;
+                                        players[b.owner].money += 200; // Bonus for kill
+                                    }
                                     setTimeout(() => {
                                         if (players[id]) {
                                             players[id].health = 100;
@@ -309,6 +442,9 @@
                             }
                         }
                     }
+                    if (hit) {
+                        bullets.splice(i, 1);
+                    }
                 }
                 conn.send({ type: 'state', players: players, bullets: bullets });
             }
@@ -316,7 +452,7 @@
             // Render Arena
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw grid pattern in background
+            // Draw grid pattern
             ctx.strokeStyle = '#181b25';
             ctx.lineWidth = 1;
             for (let x = 0; x < canvas.width; x += 40) {
@@ -362,11 +498,12 @@
                 ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.fillRect(pl.x - 20, pl.y - 28, 40, 6);
                 ctx.fillStyle = pl.color;
-                ctx.fillRect(pl.x - 20, pl.y - 28, 40 * (pl.health / 100), 6);
+                ctx.fillRect(pl.x - 20, pl.y - 28, 40 * (Math.max(0, pl.health) / 100), 6);
             }
 
-            document.getElementById('healthVal').innerText = health;
+            document.getElementById('healthVal').innerText = Math.max(0, health);
             document.getElementById('scoreVal').innerText = score;
+            document.getElementById('moneyVal').innerText = money;
 
             requestAnimationFrame(gameLoop);
         }
