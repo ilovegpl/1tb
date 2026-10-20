@@ -148,7 +148,6 @@
             });
 
             peer.on('error', () => {
-                // Retry with a new code if collision occurs
                 peer.destroy();
                 document.getElementById('hostBtn').click();
             });
@@ -183,7 +182,16 @@
         function setupConnection() {
             conn.on('data', data => {
                 if (isHost) {
-                    if (data.type === 'input' && players[data.id]) {
+                    if (data.type === 'join') {
+                        players[data.id] = {
+                            x: Math.random() * 600 + 100,
+                            y: Math.random() * 400 + 100,
+                            angle: 0,
+                            health: 100,
+                            score: 0,
+                            color: '#00ff80'
+                        };
+                    } else if (data.type === 'input' && players[data.id]) {
                         players[data.id].x = data.x;
                         players[data.id].y = data.y;
                         players[data.id].angle = data.angle;
@@ -222,6 +230,15 @@
                 score: 0,
                 color: isHost ? '#ff4757' : '#00ff80'
             };
+
+            if (!isHost) {
+                conn.on('open', () => {
+                    conn.send({ type: 'join', id: myId });
+                });
+                setTimeout(() => {
+                    conn.send({ type: 'join', id: myId });
+                }, 500);
+            }
 
             requestAnimationFrame(gameLoop);
         }
@@ -279,7 +296,7 @@
                                 players[id].health -= 25;
                                 bullets.splice(i, 1);
                                 if (players[id].health <= 0) {
-                                    players[b.owner].score += 1;
+                                    if (players[b.owner]) players[b.owner].score += 1;
                                     setTimeout(() => {
                                         if (players[id]) {
                                             players[id].health = 100;
