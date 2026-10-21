@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P 2D Top-Down Shooter - Shop Edition</title>
+    <title>P2P 2D Top-Down Shooter - Expanded Edition</title>
     <style>
         body {
             margin: 0;
@@ -125,7 +125,7 @@
     <div id="ui">
         HP: <span id="healthVal" class="highlight">100</span> &nbsp;|&nbsp; 
         SCORE: <span id="scoreVal" class="highlight">0</span> &nbsp;|&nbsp; 
-        MONEY: $<span id="moneyVal" class="money">0</span> &nbsp;|&nbsp; 
+        MONEY: $<span id="moneyVal" class="money">100</span> &nbsp;|&nbsp; 
         GUN: <span id="gunVal" class="highlight">Pistol</span> [Press B]
     </div>
 
@@ -135,7 +135,8 @@
         <button onclick="toggleShop()" style="margin-top: 10px;">Close Shop (B)</button>
     </div>
 
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <!-- Bigger Canvas Size -->
+    <canvas id="gameCanvas" width="1600" height="1200"></canvas>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -155,7 +156,21 @@
         let myId = null;
         let score = 0;
         let health = 100;
-        let money = 100; // Starting cash
+        let money = 100;
+        let roundOver = false;
+        let roundStatusText = "";
+
+        // Arena Map Walls (X, Y, Width, Height)
+        const walls = [
+            { x: 300, y: 200, w: 100, h: 300 },
+            { x: 1200, y: 200, w: 100, h: 300 },
+            { x: 700, y: 400, w: 200, h: 100 },
+            { x: 300, y: 800, w: 100, h: 250 },
+            { x: 1200, y: 800, w: 100, h: 250 },
+            { x: 700, y: 750, w: 200, h: 100 },
+            { x: 150, y: 550, w: 150, h: 100 },
+            { x: 1300, y: 550, w: 150, h: 100 }
+        ];
 
         const weapons = {
             pistol: { name: 'Pistol', cost: 0, damage: 25, fireRate: 350, speed: 8, spread: 0, count: 1 },
@@ -184,7 +199,7 @@
             mouse.x = e.clientX - rect.left;
             mouse.y = e.clientY - rect.top;
         });
-        canvas.addEventListener('mousedown', () => { if (!shopOpen) mouse.down = true; });
+        canvas.addEventListener('mousedown', () => { if (!shopOpen && !roundOver) mouse.down = true; });
         canvas.addEventListener('mouseup', () => mouse.down = false);
 
         function toggleShop() {
@@ -226,6 +241,11 @@
                 unlockedWeapons[key] = true;
                 currentWeapon = key;
                 document.getElementById('gunVal').innerText = w.name;
+                document.getElementById('moneyVal').innerText = money;
+                
+                // Sync updated money to host/client
+                if(players[myId]) players[myId].money = money;
+
                 updateShopUI();
             } else {
                 alert('Not enough money!');
@@ -296,25 +316,31 @@
                 if (isHost) {
                     if (data.type === 'join') {
                         players[data.id] = {
-                            x: Math.random() * 600 + 100,
-                            y: Math.random() * 400 + 100,
+                            x: Math.random() * 1000 + 300,
+                            y: Math.random() * 800 + 200,
+                            vx: 0, vy: 0,
                             angle: 0,
                             health: 100,
                             score: 0,
                             money: 100,
                             color: '#00ff80'
                         };
-                    } else if (data.type === 'input' && players[data.id]) {
+                    } else if (data.type === 'input' && players[data.id] && !roundOver) {
                         players[data.id].x = data.x;
                         players[data.id].y = data.y;
+                        players[data.id].vx = data.vx;
+                        players[data.id].vy = data.vy;
                         players[data.id].angle = data.angle;
-                    } else if (data.type === 'shoot') {
+                        players[data.id].money = data.money; // Fix economy sync
+                    } else if (data.type === 'shoot' && !roundOver) {
                         data.bullets.forEach(b => bullets.push(b));
                     }
                 } else {
                     if (data.type === 'state') {
                         players = data.players;
                         bullets = data.bullets;
+                        roundOver = data.roundOver;
+                        roundStatusText = data.roundStatusText;
                         if (players[myId]) {
                             health = players[myId].health;
                             score = players[myId].score;
@@ -337,8 +363,9 @@
             gameStarted = true;
 
             players[myId] = {
-                x: Math.random() * 600 + 100,
-                y: Math.random() * 400 + 100,
+                x: Math.random() * 1000 + 300,
+                y: Math.random() * 800 + 200,
+                vx: 0, vy: 0,
                 angle: 0,
                 health: 100,
                 score: 0,
@@ -358,17 +385,55 @@
             requestAnimationFrame(gameLoop);
         }
 
+        function checkWallCollision(nx, ny, radius) {
+            for (let w of walls) {
+                let closestX = Math.max(w.x, Math.min(nx, w.x + w.w));
+                let closestY = Math.max(w.y, Math.min(ny, w.y + w.h));
+                let distX = nx - closestX;
+                let distY = ny - closestY;
+                if ((distX * distX + distY * distY) < (radius * radius)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         let lastShootTime = 0;
+        let roundTimer = null;
+
         function gameLoop() {
             if (!gameStarted) return;
 
             let p = players[myId];
-            if (p && p.health > 0 && !shopOpen) {
-                let speed = 3.5;
-                if ((keys['w'] || keys['arrowup']) && p.y > 15) p.y -= speed;
-                if ((keys['s'] || keys['arrowdown']) && p.y < canvas.height - 15) p.y += speed;
-                if ((keys['a'] || keys['arrowleft']) && p.x > 15) p.x -= speed;
-                if ((keys['d'] || keys['arrowright']) && p.x < canvas.width - 15) p.x += speed;
+            if (p && p.health > 0 && !shopOpen && !roundOver) {
+                // Slower and smoother movement with acceleration & friction
+                let accel = 0.2;
+                let friction = 0.88;
+                let maxSpeed = 2.2;
+
+                if (keys['w'] || keys['arrowup']) p.vy -= accel;
+                if (keys['s'] || keys['arrowdown']) p.vy += accel;
+                if (keys['a'] || keys['arrowleft']) p.vx -= accel;
+                if (keys['d'] || keys['arrowright']) p.vx += accel;
+
+                p.vx *= friction;
+                p.vy *= friction;
+
+                // Apply movement with wall collision checks
+                let nextX = p.x + p.vx;
+                let nextY = p.y + p.vy;
+
+                if (!checkWallCollision(nextX, p.y, 15) && nextX > 15 && nextX < canvas.width - 15) {
+                    p.x = nextX;
+                } else {
+                    p.vx = 0;
+                }
+
+                if (!checkWallCollision(p.x, nextY, 15) && nextY > 15 && nextY < canvas.height - 15) {
+                    p.y = nextY;
+                } else {
+                    p.vy = 0;
+                }
 
                 p.angle = Math.atan2(mouse.y - p.y, mouse.x - p.x);
 
@@ -397,17 +462,18 @@
                 }
 
                 if (!isHost) {
-                    conn.send({ type: 'input', id: myId, x: p.x, y: p.y, angle: p.angle });
+                    conn.send({ type: 'input', id: myId, x: p.x, y: p.y, vx: p.vx, vy: p.vy, angle: p.angle, money: money });
                 }
             }
 
-            if (isHost) {
+            if (isHost && !roundOver) {
                 for (let i = bullets.length - 1; i >= 0; i--) {
                     let b = bullets[i];
                     b.x += b.vx;
                     b.y += b.vy;
 
-                    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+                    // Boundary or Wall collision for bullets
+                    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height || checkWallCollision(b.x, b.y, 4)) {
                         bullets.splice(i, 1);
                         continue;
                     }
@@ -420,7 +486,6 @@
                                 players[id].health -= b.damage;
                                 hit = true;
 
-                                // Reward attacker with money for hitting
                                 if (players[b.owner]) {
                                     players[b.owner].money += 50;
                                 }
@@ -428,15 +493,26 @@
                                 if (players[id].health <= 0) {
                                     if (players[b.owner]) {
                                         players[b.owner].score += 1;
-                                        players[b.owner].money += 200; // Bonus for kill
+                                        players[b.owner].money += 200;
                                     }
+                                    
+                                    // Trigger Round Over Cooldown
+                                    roundOver = true;
+                                    let winnerName = (b.owner === myId) ? "You" : "Opponent";
+                                    roundStatusText = `Round Over! ${winnerName} Scored! Restarting in 3s...`;
+
                                     setTimeout(() => {
-                                        if (players[id]) {
-                                            players[id].health = 100;
-                                            players[id].x = Math.random() * 600 + 100;
-                                            players[id].y = Math.random() * 400 + 100;
+                                        bullets = [];
+                                        for (let pid in players) {
+                                            players[pid].health = 100;
+                                            players[pid].x = Math.random() * 1000 + 300;
+                                            players[pid].y = Math.random() * 800 + 200;
+                                            players[pid].vx = 0;
+                                            players[pid].vy = 0;
                                         }
-                                    }, 1500);
+                                        roundOver = false;
+                                        roundStatusText = "";
+                                    }, 3000);
                                 }
                                 break;
                             }
@@ -446,21 +522,30 @@
                         bullets.splice(i, 1);
                     }
                 }
-                conn.send({ type: 'state', players: players, bullets: bullets });
+                conn.send({ type: 'state', players: players, bullets: bullets, roundOver: roundOver, roundStatusText: roundStatusText });
             }
 
             // Render Arena
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw grid pattern
+            // Draw grid pattern (wider grid)
             ctx.strokeStyle = '#181b25';
             ctx.lineWidth = 1;
-            for (let x = 0; x < canvas.width; x += 40) {
+            for (let x = 0; x < canvas.width; x += 60) {
                 ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
             }
-            for (let y = 0; y < canvas.height; y += 40) {
+            for (let y = 0; y < canvas.height; y += 60) {
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
             }
+
+            // Draw Walls
+            ctx.fillStyle = '#212633';
+            ctx.strokeStyle = '#323846';
+            ctx.lineWidth = 2;
+            walls.forEach(w => {
+                ctx.fillRect(w.x, w.y, w.w, w.h);
+                ctx.strokeRect(w.x, w.y, w.w, w.h);
+            });
 
             // Draw Bullets
             ctx.fillStyle = '#ffa502';
@@ -499,6 +584,16 @@
                 ctx.fillRect(pl.x - 20, pl.y - 28, 40, 6);
                 ctx.fillStyle = pl.color;
                 ctx.fillRect(pl.x - 20, pl.y - 28, 40 * (Math.max(0, pl.health) / 100), 6);
+            }
+
+            // Draw Round Over Text Overlay
+            if (roundOver) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#00ff80';
+                ctx.font = 'bold 36px Segoe UI';
+                ctx.textAlign = 'center';
+                ctx.fillText(roundStatusText, canvas.width / 2, canvas.height / 2);
             }
 
             document.getElementById('healthVal').innerText = Math.max(0, health);
