@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P 2D Top-Down Shooter - Shop Edition</title>
+    <title>P2P 2D Top-Down Shooter - Ultimate Edition</title>
     <style>
         body {
             margin: 0;
@@ -70,11 +70,11 @@
             display: none;
             position: absolute;
             top: 20px;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: bold;
             letter-spacing: 1px;
             z-index: 5;
-            background: rgba(18, 20, 26, 0.8);
+            background: rgba(18, 20, 26, 0.9);
             padding: 10px 20px;
             border-radius: 6px;
             border: 1px solid #2a2e3d;
@@ -87,10 +87,11 @@
             border-radius: 12px;
             border: 1px solid #2a2e3d;
             z-index: 10;
-            width: 360px;
+            width: 380px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            text-align: center;
         }
-        #shop h3 { margin-top: 0; color: #00ff80; text-align: center; }
+        #shop h3 { margin-top: 0; color: #00ff80; }
         .weapon-item {
             background: #161922;
             border: 1px solid #2a2e3d;
@@ -100,14 +101,14 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            text-align: left;
         }
-        .weapon-info div { font-size: 13px; color: #8b9bb4; }
-        .weapon-info b { color: #fff; font-size: 15px; }
+        .weapon-info div { font-size: 12px; color: #8b9bb4; }
+        .weapon-info b { color: #fff; font-size: 14px; }
         .shop-btn { padding: 6px 12px; font-size: 13px; width: auto; margin: 0; }
         .highlight { color: #00ff80; }
         .money { color: #ffa502; }
     </style>
-    <!-- PeerJS for P2P Multiplayer -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -123,19 +124,22 @@
     </div>
 
     <div id="ui">
+        ROUND: <span id="roundVal" class="highlight">1</span> &nbsp;|&nbsp; 
+        PHASE: <span id="phaseVal" class="highlight">BUYING</span> (<span id="timerVal">10</span>s) &nbsp;|&nbsp; 
         HP: <span id="healthVal" class="highlight">100</span> &nbsp;|&nbsp; 
         SCORE: <span id="scoreVal" class="highlight">0</span> &nbsp;|&nbsp; 
         MONEY: $<span id="moneyVal" class="money">0</span> &nbsp;|&nbsp; 
-        GUN: <span id="gunVal" class="highlight">Pistol</span> [Press B]
+        GUN: <span id="gunVal" class="highlight">Pistol</span>
     </div>
 
     <div id="shop">
-        <h3>GUN SHOP</h3>
+        <h3>ARMORY SHOP</h3>
+        <p id="shopTimerMsg" style="font-size: 12px; color: #ffa502; margin-bottom: 10px;">Buy phase active! Prepare for battle.</p>
         <div id="shopList"></div>
         <button onclick="toggleShop()" style="margin-top: 10px;">Close Shop (B)</button>
     </div>
 
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <canvas id="gameCanvas" width="1200" height="800"></canvas>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -155,19 +159,36 @@
         let myId = null;
         let score = 0;
         let health = 100;
-        let money = 100; // Starting cash
+        let money = 400; // Initial starter cash
 
-        // Static spawn points safely away from boundaries/walls
+        let round = 1;
+        let roundPhase = 'buy'; // 'buy' or 'combat'
+        let phaseTimer = 15; // seconds
+
+        // Larger map walls setup (x, y, w, h)
+        const walls = [
+            { x: 0, y: 0, w: 1200, h: 20 },   // Top boundary
+            { x: 0, y: 780, w: 1200, h: 20 }, // Bottom boundary
+            { x: 0, y: 0, w: 20, h: 800 },    // Left boundary
+            { x: 1180, y: 0, w: 20, h: 800 }, // Right boundary
+            // Inner tactical walls/barriers
+            { x: 300, y: 200, w: 600, h: 40 },
+            { x: 300, y: 560, w: 600, h: 40 },
+            { x: 200, y: 300, w: 40, h: 200 },
+            { x: 960, y: 300, w: 40, h: 200 }
+        ];
+
+        // Safe, isolated static spawn points
         const spawnPoints = [
-            { x: 100, y: 100 }, // Top-Left
-            { x: 700, y: 500 }  // Bottom-Right
+            { x: 100, y: 100 },  // Spawn 1 (Top-Left corner pocket)
+            { x: 1100, y: 700 }  // Spawn 2 (Bottom-Right corner pocket)
         ];
 
         const weapons = {
-            pistol: { name: 'Pistol', cost: 0, damage: 25, fireRate: 350, speed: 8, spread: 0, count: 1 },
-            smg: { name: 'SMG', cost: 250, damage: 12, fireRate: 100, speed: 9, spread: 0.15, count: 1 },
-            shotgun: { name: 'Shotgun', cost: 400, damage: 18, fireRate: 700, speed: 7, spread: 0.3, count: 4 },
-            sniper: { name: 'Sniper', cost: 600, damage: 75, fireRate: 1200, speed: 15, spread: 0.02, count: 1 }
+            pistol: { name: 'Pistol', cost: 0, damage: 25, fireRate: 400, speed: 10, spread: 0, count: 1 },
+            smg: { name: 'SMG', cost: 500, damage: 14, fireRate: 110, speed: 11, spread: 0.12, count: 1 },
+            shotgun: { name: 'Shotgun', cost: 850, damage: 20, fireRate: 800, speed: 9, spread: 0.25, count: 5 },
+            sniper: { name: 'Sniper Rifle', cost: 1200, damage: 85, fireRate: 1300, speed: 18, spread: 0.01, count: 1 }
         };
 
         let currentWeapon = 'pistol';
@@ -190,7 +211,7 @@
             mouse.x = e.clientX - rect.left;
             mouse.y = e.clientY - rect.top;
         });
-        canvas.addEventListener('mousedown', () => { if (!shopOpen) mouse.down = true; });
+        canvas.addEventListener('mousedown', () => { if (!shopOpen && roundPhase === 'combat') mouse.down = true; });
         canvas.addEventListener('mouseup', () => mouse.down = false);
 
         function toggleShop() {
@@ -218,7 +239,8 @@
                         <div>
                             ${isEquipped ? '<span class="highlight">Equipped</span>' : 
                               isUnlocked ? `<button class="shop-btn" onclick="equipWeapon('${key}')">Equip</button>` : 
-                              `<button class="shop-btn" onclick="buyWeapon('${key}')">$${w.cost}</button>`}
+                              roundPhase === 'buy' ? `<button class="shop-btn" onclick="buyWeapon('${key}')">$${w.cost}</button>` : 
+                              '<span style="color:#555;font-size:12px;">Combat Locked</span>'}
                         </div>
                     </div>`;
             }
@@ -226,6 +248,10 @@
         }
 
         function buyWeapon(key) {
+            if (roundPhase !== 'buy') {
+                alert('Weapons can only be purchased during the Buy Phase!');
+                return;
+            }
             let w = weapons[key];
             if (money >= w.cost) {
                 money -= w.cost;
@@ -301,28 +327,33 @@
             conn.on('data', data => {
                 if (isHost) {
                     if (data.type === 'join') {
-                        // Assign second spawn point for the joining player
                         const spawn = spawnPoints[1];
                         players[data.id] = {
                             x: spawn.x,
                             y: spawn.y,
+                            vx: 0, vy: 0,
                             angle: 0,
                             health: 100,
                             score: 0,
-                            money: 100,
+                            money: 400,
                             color: '#00ff80'
                         };
                     } else if (data.type === 'input' && players[data.id]) {
-                        players[data.id].x = data.x;
-                        players[data.id].y = data.y;
-                        players[data.id].angle = data.angle;
+                        // Apply movement and collision checks server-side for client
+                        updatePlayerPosition(players[data.id], data.keys, data.angle);
                     } else if (data.type === 'shoot') {
-                        data.bullets.forEach(b => bullets.push(b));
+                        if (roundPhase === 'combat') {
+                            data.bullets.forEach(b => bullets.push(b));
+                        }
                     }
                 } else {
                     if (data.type === 'state') {
                         players = data.players;
                         bullets = data.bullets;
+                        round = data.round;
+                        roundPhase = data.roundPhase;
+                        phaseTimer = data.phaseTimer;
+                        
                         if (players[myId]) {
                             health = players[myId].health;
                             score = players[myId].score;
@@ -344,30 +375,102 @@
             ui.style.display = 'block';
             gameStarted = true;
 
-            // Host gets first spawn point, Client gets second spawn point initially
             const spawnIndex = isHost ? 0 : 1;
             const spawn = spawnPoints[spawnIndex];
 
             players[myId] = {
                 x: spawn.x,
                 y: spawn.y,
+                vx: 0, vy: 0,
                 angle: 0,
                 health: 100,
                 score: 0,
-                money: 100,
+                money: 400,
                 color: isHost ? '#ff4757' : '#00ff80'
             };
 
             if (!isHost) {
-                conn.on('open', () => {
-                    conn.send({ type: 'join', id: myId });
-                });
                 setTimeout(() => {
                     conn.send({ type: 'join', id: myId });
                 }, 500);
+            } else {
+                startRoundLoop();
             }
 
             requestAnimationFrame(gameLoop);
+        }
+
+        // Host round state ticker
+        function startRoundLoop() {
+            setInterval(() => {
+                phaseTimer--;
+                if (phaseTimer <= 0) {
+                    if (roundPhase === 'buy') {
+                        roundPhase = 'combat';
+                        phaseTimer = 30; // 30 seconds combat phase
+                        if (shopOpen) toggleShop();
+                    } else {
+                        roundPhase = 'buy';
+                        phaseTimer = 15; // 15 seconds shop/buy phase
+                        round++;
+                        // Passive round income for survival
+                        for (let id in players) {
+                            players[id].money += 300;
+                            players[id].health = 100;
+                            const idx = id === myId ? 0 : 1;
+                            players[id].x = spawnPoints[idx].x;
+                            players[id].y = spawnPoints[idx].y;
+                        }
+                    }
+                }
+            }, 1000);
+        }
+
+        function checkRectCollision(nx, ny, size, walls) {
+            for (let w of walls) {
+                if (nx + size > w.x && nx - size < w.x + w.w &&
+                    ny + size > w.y && ny - size < w.y + w.h) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function updatePlayerPosition(p, activeKeys, targetAngle) {
+            let accel = 0.35;
+            let friction = 0.85;
+            let maxSpeed = 3.0; // Slower, tactical movement speed
+
+            if (activeKeys['w'] || activeKeys['arrowup']) p.vy -= accel;
+            if (activeKeys['s'] || activeKeys['arrowdown']) p.vy += accel;
+            if (activeKeys['a'] || activeKeys['arrowleft']) p.vx -= accel;
+            if (activeKeys['d'] || activeKeys['arrowright']) p.vx += accel;
+
+            p.vx *= friction;
+            p.vy *= friction;
+
+            // Clamp velocity
+            p.vx = Math.max(-maxSpeed, Math.min(maxSpeed, p.vx));
+            p.vy = Math.max(-maxSpeed, Math.min(maxSpeed, p.vy));
+
+            let nextX = p.x + p.vx;
+            let nextY = p.y + p.vy;
+            let radius = 15;
+
+            // Separate axis collision for smooth sliding against walls
+            if (!checkRectCollision(nextX, p.y, radius, walls)) {
+                p.x = nextX;
+            } else {
+                p.vx = 0;
+            }
+
+            if (!checkRectCollision(p.x, nextY, radius, walls)) {
+                p.y = nextY;
+            } else {
+                p.vy = 0;
+            }
+
+            p.angle = targetAngle;
         }
 
         let lastShootTime = 0;
@@ -376,21 +479,19 @@
 
             let p = players[myId];
             if (p && p.health > 0 && !shopOpen) {
-                let speed = 3.5;
-                if ((keys['w'] || keys['arrowup']) && p.y > 15) p.y -= speed;
-                if ((keys['s'] || keys['arrowdown']) && p.y < canvas.height - 15) p.y += speed;
-                if ((keys['a'] || keys['arrowleft']) && p.x > 15) p.x -= speed;
-                if ((keys['d'] || keys['arrowright']) && p.x < canvas.width - 15) p.x += speed;
+                let targetAngle = Math.atan2(mouse.y - p.y, mouse.x - p.x);
 
-                p.angle = Math.atan2(mouse.y - p.y, mouse.x - p.x);
+                if (isHost) {
+                    updatePlayerPosition(p, keys, targetAngle);
+                }
 
                 let wData = weapons[currentWeapon];
-                if (mouse.down && Date.now() - lastShootTime > wData.fireRate) {
+                if (mouse.down && roundPhase === 'combat' && Date.now() - lastShootTime > wData.fireRate) {
                     lastShootTime = Date.now();
                     let spawnedBullets = [];
 
                     for (let i = 0; i < wData.count; i++) {
-                        let spreadAngle = p.angle + (Math.random() - 0.5) * wData.spread;
+                        let spreadAngle = targetAngle + (Math.random() - 0.5) * wData.spread;
                         spawnedBullets.push({
                             x: p.x,
                             y: p.y,
@@ -409,17 +510,26 @@
                 }
 
                 if (!isHost) {
-                    conn.send({ type: 'input', id: myId, x: p.x, y: p.y, angle: p.angle });
+                    conn.send({ type: 'input', id: myId, keys: keys, angle: targetAngle });
                 }
             }
 
             if (isHost) {
+                // Bullet updates & wall collisions
                 for (let i = bullets.length - 1; i >= 0; i--) {
                     let b = bullets[i];
                     b.x += b.vx;
                     b.y += b.vy;
 
-                    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+                    let hitWall = false;
+                    for (let w of walls) {
+                        if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) {
+                            hitWall = true;
+                            break;
+                        }
+                    }
+
+                    if (hitWall) {
                         bullets.splice(i, 1);
                         continue;
                     }
@@ -432,25 +542,16 @@
                                 players[id].health -= b.damage;
                                 hit = true;
 
-                                // Reward attacker with money for hitting
+                                // Rewarding damage cash
                                 if (players[b.owner]) {
-                                    players[b.owner].money += 50;
+                                    players[b.owner].money += 25;
                                 }
 
                                 if (players[id].health <= 0) {
                                     if (players[b.owner]) {
                                         players[b.owner].score += 1;
-                                        players[b.owner].money += 200; // Bonus for kill
+                                        players[b.owner].money += 250; // Kill bonus cash
                                     }
-                                    setTimeout(() => {
-                                        if (players[id]) {
-                                            players[id].health = 100;
-                                            // Assign static spawn points alternately on respawn
-                                            const respawnIdx = id === myId ? 0 : 1;
-                                            players[id].x = spawnPoints[respawnIdx].x;
-                                            players[id].y = spawnPoints[respawnIdx].y;
-                                        }
-                                    }, 1500);
                                 }
                                 break;
                             }
@@ -460,7 +561,15 @@
                         bullets.splice(i, 1);
                     }
                 }
-                conn.send({ type: 'state', players: players, bullets: bullets });
+
+                conn.send({ 
+                    type: 'state', 
+                    players: players, 
+                    bullets: bullets, 
+                    round: round, 
+                    roundPhase: roundPhase, 
+                    phaseTimer: phaseTimer 
+                });
             }
 
             // Render Arena
@@ -475,6 +584,15 @@
             for (let y = 0; y < canvas.height; y += 40) {
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
             }
+
+            // Draw Walls
+            ctx.fillStyle = '#212633';
+            ctx.strokeStyle = '#2a2e3d';
+            ctx.lineWidth = 2;
+            walls.forEach(w => {
+                ctx.fillRect(w.x, w.y, w.w, w.h);
+                ctx.strokeRect(w.x, w.y, w.w, w.h);
+            });
 
             // Draw Bullets
             ctx.fillStyle = '#ffa502';
@@ -515,9 +633,22 @@
                 ctx.fillRect(pl.x - 20, pl.y - 28, 40 * (Math.max(0, pl.health) / 100), 6);
             }
 
+            // UI Updates
+            document.getElementById('roundVal').innerText = round;
+            document.getElementById('phaseVal').innerText = roundPhase.toUpperCase();
+            document.getElementById('timerVal').innerText = phaseTimer;
             document.getElementById('healthVal').innerText = Math.max(0, health);
             document.getElementById('scoreVal').innerText = score;
             document.getElementById('moneyVal').innerText = money;
+
+            let shopMsg = document.getElementById('shopTimerMsg');
+            if (roundPhase === 'buy') {
+                shopMsg.innerText = `Buy phase active! (${phaseTimer}s remaining)`;
+                shopMsg.style.color = '#00ff80';
+            } else {
+                shopMsg.innerText = `Combat active! Shop locked until next round.`;
+                shopMsg.style.color = '#ff4757';
+            }
 
             requestAnimationFrame(gameLoop);
         }
